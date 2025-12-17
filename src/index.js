@@ -217,6 +217,4 @@ const fraccion = calculadora.resolver();
 fraccion.visibleSignoMas = false;
 const nuevaFraccion = fraccion.simplificar();
 nuevaFraccion.visibleSignoMas = false;
-console.log(expresion.toString());
-console.log(fraccion.toString());
-console.log(nuevaFraccion.toString());
+console.log(expresion.toString(), ' = ', fraccion.toString(), ' = ', fraccion.toString()!== nuevaFraccion.toString()? nuevaFraccion.toString():'');

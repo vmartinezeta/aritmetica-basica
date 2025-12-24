@@ -34,9 +34,13 @@ class Fraccion {
         return `- ${this.numerador} / ${this.denominador}`;
     }
 
+    mcd(a, b) {
+        return b === 0 ? Math.abs(a) : this.mcd(b, a % b);
+    }
+
     simplificar() {
         this.tomarSigno();
-        const maxcd = Factorizacion.maxcd(this.numerador, this.denominador);
+        const maxcd = this.mcd(this.numerador, this.denominador);
         return new Fraccion(this.signo, this.numerador / maxcd, this.denominador / maxcd, this.visibleSignoMas);
     }
 
@@ -44,12 +48,51 @@ class Fraccion {
         return new Fraccion(this.signo, this.numerador, this.denominador, this.visibleSignoMas);
     }
 
+    sumar(otra) {
+        this.tomarSigno();
+        otra.tomarSigno();
+        const numerador = this.signo*this.numerador+ otra.signo*otra.numerador;
+        if (!numerador) return null;
+        return new Fraccion(Signo.MAS, numerador, this.denominador);
+    }
+}
+
+
+class Factorizacion {
+    static mincm2(a, b) {
+        let tabla = [a, b];
+        let factorPrimo = 2;
+        const factores = [];
+        while (!tabla.every(n => n === 1)) {
+            if (tabla.some(n => n % factorPrimo === 0)) {
+                tabla = tabla.map(n => {
+                    if (n % factorPrimo === 0) {
+                        return n / factorPrimo;
+                    }
+                    return n;
+                });
+                factores.push(factorPrimo);
+            } else if (factorPrimo === 2) {
+                factorPrimo++;
+            } else {
+                factorPrimo += 2;
+            }
+        }
+        return factores.reduce((producto, factor) => producto * factor, 1);
+    }
+
+
+    static mincm(...parametros) {
+        return parametros.reduce((result, parametro) => this.mincm2(result, parametro), 1);
+    }
 }
 
 class ExpresionAritmetica {
-    constructor(...terminos) {
-        this.terminos = terminos ?? [];
-        this._terminos = this.terminos;
+    constructor(parentExpresion, signo, visibleSignoMas) {
+        this.parentExpresion = parentExpresion ?? null;
+        this.signo = signo ?? Signo.MAS;
+        this.visibleSignoMas = visibleSignoMas ?? true;
+        this.terminos = [];
     }
 
     addNumero(numero) {
@@ -62,105 +105,92 @@ class ExpresionAritmetica {
         return this;
     }
 
-    addParentesis(signo, subexpresion) {
-        this.terminos.push(new ExpresionConParentesis(signo, subexpresion));
-        this.terminos = this.terminos.map( termino => {
-            if (termino instanceof ExpresionConParentesis) {
-                return termino.reducir();
-            }
-            return termino;
-        }).filter(termino => termino !== null);
-        return this;
+    addParentesisCerrado() {
+        return this.parentExpresion;
     }
 
-    isFraccionHomogenea() {
-        return this.terminos.map(f => f.newInstance()).map(fraccion => {
+    addParentesisAbierto(signo) {
+        const subexpresion = new ExpresionAritmetica(this, signo);
+        this.terminos.push(subexpresion);
+        return subexpresion;
+    }
+
+    isFraccionHomogenea(terminos) {
+        return terminos.map(fraccion => {
             fraccion.tomarSigno();
             return fraccion.denominador;
         }).every((denominador, _, array) => denominador === array[0]);
     }
 
-    homogenizar() {
-        const denominadores = this.terminos.map(fraccion => {
+    homogenizar(terminos) {
+        const denominadores = terminos.map(fraccion => {
             fraccion.tomarSigno();
             return fraccion.denominador;
         });
         const mincm = Factorizacion.mincm(...denominadores);
-        this.terminos = this.terminos.map(fraccion => {
+        return terminos.map(fraccion => {
             fraccion.tomarSigno();
             const numerador = fraccion.numerador * (mincm / fraccion.denominador);
             return new Fraccion(fraccion.signo, numerador, mincm);
         });
     }
 
-    reducirHomogeneas() {
-        return this.terminos.reduce((result, fraccion) => {
+    reducirHomogeneas(terminos) {
+        return terminos.reduce((result, fraccion) => {
             if (!result) {
-                fraccion.tomarSigno();
                 return fraccion;
             }
-            fraccion.tomarSigno();
-            const numerador = result.signo * result.numerador + fraccion.signo * fraccion.numerador;
-            if (!numerador) return null;
-            return new Fraccion(Signo.MAS, numerador, result.denominador);
+            return result.sumar(fraccion);
         }, null);
     }
 
-    reducirHeterogeneas() {
-        this.homogenizar();
-        return this.reducirHomogeneas();
+    reducirHeterogeneas(terminos) {
+        const nuevoTerminos = this.homogenizar(terminos);
+        return this.reducirHomogeneas(nuevoTerminos);
+    }
+
+    eliminarParentesis(terminos) {
+        return terminos.map(termino => {
+            if (termino instanceof ExpresionAritmetica) {
+                return termino.reducir();
+            }
+            return termino;
+        });
     }
 
     reducir() {
-        if (this.isFraccionHomogenea()) {
-            return this.reducirHomogeneas();
+        return this.reducirParcial(this.eliminarParentesis(this.terminos));
+    }
+
+    reducirParcial(terminos) {
+        if (this.isFraccionHomogenea(terminos)) {
+            return this.reducirHomogeneas(terminos);
         }
-        return this.reducirHeterogeneas();
+        return this.reducirHeterogeneas(terminos);
     }
 
     toString() {
-        return this._terminos.reduce((text, termino) => {
-            if (!text) {
+        return this.terminos.reduce((text, termino) => {
+            if (!text && termino instanceof Fraccion) {
                 termino.visibleSignoMas = false;
                 return termino.toString();
+            } else if (!text && termino instanceof ExpresionAritmetica) {
+                if (termino.signo === Signo.MAS) {
+                    return `(${termino.toString()})`;
+                }
+                return `- (${termino.toString()})`;
+            } else if (termino instanceof ExpresionAritmetica) {
+                return `${text} ${termino.signo===Signo.MAS?'+':'-'} (${termino.toString()})`;
             }
             return text + ' ' + termino.toString();
         }, null);
     }
-}
 
-class ExpresionConParentesis {
-    constructor(signo, expresion, visibleSignoMas) {
-        this.signo = signo;
-        this.expresion = expresion;
-        this.visibleSignoMas = visibleSignoMas || true;
-    }
-
-    reducir() {
-        const fr = this.expresion.reducir();
-        if (!fr) return null;
-        fr.tomarSigno();
-        return new Fraccion(fr.signo*this.signo, fr.numerador, fr.denominador);
-    }
-
-    toString() {
-        if (this.signo === Signo.MAS && this.visibleSignoMas) {
-            return `+ (${this.expresion.toString()})`;
-        } else if (this.signo === Signo.MAS) {
-            return `(${this.expresion.toString()})`;
-        }
-        return `- (${this.expresion.toString()})`;
-    }
 }
 
 class Multiplicacion {
-    constructor(...terminos) {
-        this.terminos = terminos.map(t => {
-            if (t instanceof Fraccion) {
-                return t;
-            }
-            return new Fraccion(Signo.MAS, t, 1);
-        });
+    constructor(parentExpresion) {
+        this.parentExpresion = parentExpresion;
     }
 
     multiplicar() {
@@ -184,52 +214,6 @@ class Multiplicacion {
 
 }
 
-class Factorizacion {
-    static maxcd(a, b) {
-        let tabla = [a, b];
-        let factorPrimo = 2;
-        const factores = [];
-        while (tabla.every(n => n >= factorPrimo)) {
-            if (tabla.every(n => n % factorPrimo === 0)) {
-                tabla = tabla.map(n => n / factorPrimo);
-                factores.push(factorPrimo);
-            } else if (factorPrimo === 2) {
-                factorPrimo++;
-            } else {
-                factorPrimo += 2;
-            }
-        }
-
-        return factores.reduce((producto, n) => producto * n, 1);
-    }
-
-    static mincm2(a, b) {
-        let tabla = [a, b];
-        let factorPrimo = 2;
-        const factores = [];
-        while (!tabla.every(n => n === 1)) {
-            if (tabla.some(n => n % factorPrimo === 0)) {
-                tabla = tabla.map(n => {
-                    if (n % factorPrimo === 0) {
-                        return n / factorPrimo;
-                    }
-                    return n;
-                });
-                factores.push(factorPrimo);
-            } else if (factorPrimo === 2) {
-                factorPrimo++;
-            } else {
-                factorPrimo += 2;
-            }
-        }
-        return factores.reduce((producto, factor) => producto * factor, 1);
-    }
-
-    static mincm(...parametros) {
-        return parametros.reduce((result, parametro) => this.mincm2(result, parametro), 1);
-    }
-}
-
 class Calculadora {
     constructor(expresion) {
         this.expresion = expresion;
@@ -244,16 +228,15 @@ class Calculadora {
 
 }
 
-const expresion = new ExpresionAritmetica();
+function crearExpresion() {
+    return new ExpresionAritmetica();
+}
 
-const subexpresion = new ExpresionAritmetica();
-subexpresion.addFraccion(Signo.MAS, 1, 4)
-            .addFraccion(Signo.MAS, 3, 10);
+const expresion = crearExpresion()
+.addNumero(2)
+.addFraccion(Signo.MENOS, 7, 3)
+.addFraccion(Signo.MAS, 5, 6)
 
-expresion.addNumero(2)
-    .addFraccion(Signo.MENOS, 7, 3)
-    .addFraccion(Signo.MAS, 5, 6)
-    .addParentesis(Signo.MAS, subexpresion);
 
 const calculadora = new Calculadora(expresion);
 calculadora.resolver();
